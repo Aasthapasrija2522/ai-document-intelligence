@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Node
+node_modules/
+.env.local
+
+# Docker
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploaded documents (never commit real user files)
+backend/storage/documents/*
+!backend/storage/documents/.gitkeep
+
+# FAISS index files (regenerated, not source)
+*.faiss
+*.pkl
