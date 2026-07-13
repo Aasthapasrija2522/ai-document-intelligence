@@ -35,6 +35,11 @@ from app.services.llm_service import (
     LLMServiceError,
 )
 
+from app.services.pii_service import (
+    detect_pii,
+    mask_pii,
+)
+
 router = APIRouter(
     prefix="/documents",
     tags=["Documents"],
@@ -49,36 +54,36 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # ------------------------------
-    # Validate file extension
-    # ------------------------------
+    # ----------------------------
+    # Validate extension
+    # ----------------------------
     try:
         ext = validate_file_extension(file.filename)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # ------------------------------
-    # Read uploaded file
-    # ------------------------------
+    # ----------------------------
+    # Read file
+    # ----------------------------
     file_bytes = await file.read()
 
-    # ------------------------------
-    # Validate file size
-    # ------------------------------
+    # ----------------------------
+    # Validate size
+    # ----------------------------
     try:
         validate_file_size(len(file_bytes))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # ------------------------------
-    # Generate unique filename
-    # ------------------------------
+    # ----------------------------
+    # Generate filename
+    # ----------------------------
     unique_filename = f"{uuid.uuid4().hex}{ext}"
     storage_path = os.path.join(STORAGE_DIR, unique_filename)
 
-    # ------------------------------
-    # Encrypt and save file
-    # ------------------------------
+    # ----------------------------
+    # Encrypt and save
+    # ----------------------------
     encrypted_bytes = encrypt_bytes(file_bytes)
 
     os.makedirs(STORAGE_DIR, exist_ok=True)
@@ -86,9 +91,9 @@ async def upload_document(
     with open(storage_path, "wb") as f:
         f.write(encrypted_bytes)
 
-    # ------------------------------
+    # ----------------------------
     # Create database record
-    # ------------------------------
+    # ----------------------------
     new_document = Document(
         owner_id=current_user.id,
         filename=unique_filename,
@@ -103,9 +108,9 @@ async def upload_document(
     db.commit()
     db.refresh(new_document)
 
-    # ------------------------------
-    # Extract text + AI processing
-    # ------------------------------
+    # ----------------------------
+    # Process document
+    # ----------------------------
     try:
         extracted_text = extract_text(file_bytes, ext)
 
@@ -114,9 +119,9 @@ async def upload_document(
 
         db.commit()
 
-        # --------------------------
-        # Generate AI Summary
-        # --------------------------
+        # ------------------------
+        # AI Summary & Classification
+        # ------------------------
         try:
             new_document.summary = generate_summary(extracted_text)
             new_document.classification = classify_document(extracted_text)
@@ -125,6 +130,24 @@ async def upload_document(
             new_document.summary = f"Summary unavailable: {str(e)}"
             new_document.classification = "Unclassified"
 
+        # ------------------------
+        # Detect PII
+        # ------------------------
+        pii_result = detect_pii(extracted_text)
+
+        new_document.pii_detected = pii_result["pii_detected"]
+
+        # ------------------------
+        # Mask PII in preview
+        # ------------------------
+        if pii_result["pii_detected"]:
+            new_document.extracted_text_preview = mask_pii(
+                extracted_text[:1000]
+            )
+
+        # ------------------------
+        # Processing complete
+        # ------------------------
         new_document.status = DocumentStatus.ready
         new_document.processed_at = datetime.utcnow()
 
@@ -134,8 +157,15 @@ async def upload_document(
             f"Extraction failed: {str(e)}"
         )
 
-    db.commit()
-    db.refresh(new_document)
+    except Exception as e:
+        new_document.status = DocumentStatus.failed
+        new_document.extracted_text_preview = (
+            f"Processing failed: {str(e)}"
+        )
+
+    finally:
+        db.commit()
+        db.refresh(new_document)
 
     return new_document
 
@@ -183,8 +213,6 @@ def download_document(
         content=decrypted_bytes,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": (
-                f'attachment; filename="{document.original_filename}"'
-            )
+            "Content-Disposition": f'attachment; filename="{document.original_filename}"'
         },
     )
