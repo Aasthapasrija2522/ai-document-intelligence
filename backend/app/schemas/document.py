@@ -8,7 +8,9 @@ class DocumentResponse(BaseModel):
     file_type: str
     file_size_bytes: int
     status: DocumentStatus
+    extracted_text_preview: str | None
     uploaded_at: datetime
+    processed_at: datetime | None
 
     class Config:
         from_attributes = True

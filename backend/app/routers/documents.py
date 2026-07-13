@@ -1,6 +1,9 @@
 import os
 import uuid
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -9,7 +12,17 @@ from app.models.user import User
 from app.models.document import Document
 from app.schemas.document import DocumentResponse
 from app.services.encryption_service import encrypt_bytes, decrypt_bytes
-from app.services.file_validation_service import validate_file_extension, validate_file_size, MAX_FILE_SIZE_BYTES
+from app.services.file_validation_service import (
+    validate_file_extension,
+    validate_file_size,
+)
+
+# Import these if you have implemented text extraction
+from app.services.text_extraction_service import (
+    extract_text,
+    TextExtractionError,
+)
+from app.models.document import DocumentStatus
 
 router = APIRouter(prefix="/documents", tags=["Documents"])
 
@@ -20,29 +33,36 @@ STORAGE_DIR = "storage/documents"
 async def upload_document(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
+    # Validate extension
     try:
         ext = validate_file_extension(file.filename)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Read file
     file_bytes = await file.read()
 
+    # Validate size
     try:
         validate_file_size(len(file_bytes))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Generate unique filename
     unique_filename = f"{uuid.uuid4().hex}{ext}"
     storage_path = os.path.join(STORAGE_DIR, unique_filename)
 
+    # Encrypt file
     encrypted_bytes = encrypt_bytes(file_bytes)
 
     os.makedirs(STORAGE_DIR, exist_ok=True)
+
     with open(storage_path, "wb") as f:
         f.write(encrypted_bytes)
 
+    # Create database record
     new_document = Document(
         owner_id=current_user.id,
         filename=unique_filename,
@@ -56,30 +76,50 @@ async def upload_document(
     db.commit()
     db.refresh(new_document)
 
+    # Extract text
+    try:
+        extracted_text = extract_text(file_bytes, ext)
+        new_document.extracted_text_preview = extracted_text[:1000]
+        new_document.status = DocumentStatus.ready
+        new_document.processed_at = datetime.utcnow()
+
+    except TextExtractionError as e:
+        new_document.status = DocumentStatus.failed
+        new_document.extracted_text_preview = f"Extraction failed: {str(e)}"
+
+    db.commit()
+    db.refresh(new_document)
+
     return new_document
 
 
 @router.get("/", response_model=list[DocumentResponse])
 def list_documents(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    return db.query(Document).filter(Document.owner_id == current_user.id).order_by(Document.uploaded_at.desc()).all()
+    return (
+        db.query(Document)
+        .filter(Document.owner_id == current_user.id)
+        .order_by(Document.uploaded_at.desc())
+        .all()
+    )
 
-
-
-from fastapi.responses import Response
 
 @router.get("/{document_id}/download")
 def download_document(
     document_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    document = db.query(Document).filter(
-        Document.id == document_id,
-        Document.owner_id == current_user.id
-    ).first()
+    document = (
+        db.query(Document)
+        .filter(
+            Document.id == document_id,
+            Document.owner_id == current_user.id,
+        )
+        .first()
+    )
 
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -92,5 +132,7 @@ def download_document(
     return Response(
         content=decrypted_bytes,
         media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{document.original_filename}"'}
+        headers={
+            "Content-Disposition": f'attachment; filename="{document.original_filename}"'
+        },
     )
