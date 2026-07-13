@@ -8,23 +8,37 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
+
 from app.models.user import User
-from app.models.document import Document
+from app.models.document import Document, DocumentStatus
+
 from app.schemas.document import DocumentResponse
-from app.services.encryption_service import encrypt_bytes, decrypt_bytes
+
+from app.services.encryption_service import (
+    encrypt_bytes,
+    decrypt_bytes,
+)
+
 from app.services.file_validation_service import (
     validate_file_extension,
     validate_file_size,
 )
 
-# Import these if you have implemented text extraction
 from app.services.text_extraction_service import (
     extract_text,
     TextExtractionError,
 )
-from app.models.document import DocumentStatus
 
-router = APIRouter(prefix="/documents", tags=["Documents"])
+from app.services.llm_service import (
+    generate_summary,
+    classify_document,
+    LLMServiceError,
+)
+
+router = APIRouter(
+    prefix="/documents",
+    tags=["Documents"],
+)
 
 STORAGE_DIR = "storage/documents"
 
@@ -35,26 +49,36 @@ async def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Validate extension
+    # ------------------------------
+    # Validate file extension
+    # ------------------------------
     try:
         ext = validate_file_extension(file.filename)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Read file
+    # ------------------------------
+    # Read uploaded file
+    # ------------------------------
     file_bytes = await file.read()
 
-    # Validate size
+    # ------------------------------
+    # Validate file size
+    # ------------------------------
     try:
         validate_file_size(len(file_bytes))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # ------------------------------
     # Generate unique filename
+    # ------------------------------
     unique_filename = f"{uuid.uuid4().hex}{ext}"
     storage_path = os.path.join(STORAGE_DIR, unique_filename)
 
-    # Encrypt file
+    # ------------------------------
+    # Encrypt and save file
+    # ------------------------------
     encrypted_bytes = encrypt_bytes(file_bytes)
 
     os.makedirs(STORAGE_DIR, exist_ok=True)
@@ -62,7 +86,9 @@ async def upload_document(
     with open(storage_path, "wb") as f:
         f.write(encrypted_bytes)
 
+    # ------------------------------
     # Create database record
+    # ------------------------------
     new_document = Document(
         owner_id=current_user.id,
         filename=unique_filename,
@@ -70,22 +96,43 @@ async def upload_document(
         file_type=ext.replace(".", ""),
         file_size_bytes=len(file_bytes),
         storage_path=storage_path,
+        status=DocumentStatus.processing,
     )
 
     db.add(new_document)
     db.commit()
     db.refresh(new_document)
 
-    # Extract text
+    # ------------------------------
+    # Extract text + AI processing
+    # ------------------------------
     try:
         extracted_text = extract_text(file_bytes, ext)
+
         new_document.extracted_text_preview = extracted_text[:1000]
+        new_document.status = DocumentStatus.processing
+
+        db.commit()
+
+        # --------------------------
+        # Generate AI Summary
+        # --------------------------
+        try:
+            new_document.summary = generate_summary(extracted_text)
+            new_document.classification = classify_document(extracted_text)
+
+        except LLMServiceError as e:
+            new_document.summary = f"Summary unavailable: {str(e)}"
+            new_document.classification = "Unclassified"
+
         new_document.status = DocumentStatus.ready
         new_document.processed_at = datetime.utcnow()
 
     except TextExtractionError as e:
         new_document.status = DocumentStatus.failed
-        new_document.extracted_text_preview = f"Extraction failed: {str(e)}"
+        new_document.extracted_text_preview = (
+            f"Extraction failed: {str(e)}"
+        )
 
     db.commit()
     db.refresh(new_document)
@@ -122,7 +169,10 @@ def download_document(
     )
 
     if not document:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(
+            status_code=404,
+            detail="Document not found",
+        )
 
     with open(document.storage_path, "rb") as f:
         encrypted_bytes = f.read()
@@ -133,6 +183,8 @@ def download_document(
         content=decrypted_bytes,
         media_type="application/octet-stream",
         headers={
-            "Content-Disposition": f'attachment; filename="{document.original_filename}"'
+            "Content-Disposition": (
+                f'attachment; filename="{document.original_filename}"'
+            )
         },
     )

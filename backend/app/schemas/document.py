@@ -9,6 +9,8 @@ class DocumentResponse(BaseModel):
     file_size_bytes: int
     status: DocumentStatus
     extracted_text_preview: str | None
+    summary: str | None
+    classification: str | None
     uploaded_at: datetime
     processed_at: datetime | None
 
