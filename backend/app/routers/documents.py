@@ -13,6 +13,10 @@ from app.models.user import User
 from app.models.document import Document, DocumentStatus
 
 from app.schemas.document import DocumentResponse
+from app.services.chunking_service import chunk_text
+from app.services.embedding_service import generate_embeddings
+from app.services.vector_store_service import add_vectors
+from app.models.document import DocumentChunk
 
 from app.services.encryption_service import (
     encrypt_bytes,
@@ -136,6 +140,25 @@ async def upload_document(
         pii_result = detect_pii(extracted_text)
 
         new_document.pii_detected = pii_result["pii_detected"]
+        chunks = chunk_text(extracted_text)
+        if chunks:
+            embeddings = generate_embeddings(chunks)
+
+            chunk_metadata = [
+                {"document_id": new_document.id, "chunk_index": i, "chunk_text": chunk}
+                for i, chunk in enumerate(chunks)
+            ]
+
+            vector_ids = add_vectors(embeddings, chunk_metadata)
+
+            for i, (chunk, vector_id) in enumerate(zip(chunks, vector_ids)):
+                db_chunk = DocumentChunk(
+                    document_id=new_document.id,
+                    chunk_index=i,
+                    chunk_text=chunk,
+                    vector_id=str(vector_id)
+                )
+                db.add(db_chunk)
 
         # ------------------------
         # Mask PII in preview
