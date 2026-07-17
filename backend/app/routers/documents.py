@@ -5,6 +5,8 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
+from fastapi import Request
+from app.services.audit_service import log_action
 
 from app.core.database import get_db
 from app.core.deps import get_current_user
@@ -54,6 +56,7 @@ STORAGE_DIR = "storage/documents"
 
 @router.post("/upload", response_model=DocumentResponse)
 async def upload_document(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -183,12 +186,25 @@ async def upload_document(
     except Exception as e:
         new_document.status = DocumentStatus.failed
         new_document.extracted_text_preview = (
-            f"Processing failed: {str(e)}"
-        )
+        f"Processing failed: {str(e)}"
+    )
 
     finally:
         db.commit()
         db.refresh(new_document)
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="document_uploaded",
+        resource_type="document",
+        resource_id=new_document.id,
+        details={
+            "filename": new_document.original_filename,
+            "status": new_document.status.value,
+        },
+        request=request,
+    )
 
     return new_document
 
@@ -209,6 +225,7 @@ def list_documents(
 @router.get("/{document_id}/download")
 def download_document(
     document_id: int,
+    request: Request,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -231,6 +248,18 @@ def download_document(
         encrypted_bytes = f.read()
 
     decrypted_bytes = decrypt_bytes(encrypted_bytes)
+
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="document_downloaded",
+        resource_type="document",
+        resource_id=document.id,
+        details={
+            "filename": document.original_filename,
+        },
+        request=request,
+    )
 
     return Response(
         content=decrypted_bytes,

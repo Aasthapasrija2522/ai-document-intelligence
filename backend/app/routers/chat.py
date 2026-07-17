@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -6,8 +6,15 @@ from app.core.deps import get_current_user
 from app.models.user import User
 from app.models.document import Document
 from app.models.chat import ChatSession, ChatMessage, MessageRole
-from app.schemas.chat import ChatSessionCreate, ChatSessionResponse, ChatMessageCreate, ChatReply, ChatMessageResponse
+from app.schemas.chat import (
+    ChatSessionCreate,
+    ChatSessionResponse,
+    ChatMessageCreate,
+    ChatReply,
+    ChatMessageResponse,
+)
 from app.services.rag_service import generate_rag_answer
+from app.services.audit_service import log_action
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -16,21 +23,23 @@ router = APIRouter(prefix="/chat", tags=["Chat"])
 def create_chat_session(
     session_data: ChatSessionCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     if session_data.document_id is not None:
         document = db.query(Document).filter(
             Document.id == session_data.document_id,
-            Document.owner_id == current_user.id
+            Document.owner_id == current_user.id,
         ).first()
+
         if not document:
             raise HTTPException(status_code=404, detail="Document not found")
 
     new_session = ChatSession(
         user_id=current_user.id,
         document_id=session_data.document_id,
-        title=session_data.title
+        title=session_data.title,
     )
+
     db.add(new_session)
     db.commit()
     db.refresh(new_session)
@@ -41,78 +50,114 @@ def create_chat_session(
 @router.get("/sessions", response_model=list[ChatSessionResponse])
 def list_chat_sessions(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    return db.query(ChatSession).filter(ChatSession.user_id == current_user.id).order_by(ChatSession.created_at.desc()).all()
+    return (
+        db.query(ChatSession)
+        .filter(ChatSession.user_id == current_user.id)
+        .order_by(ChatSession.created_at.desc())
+        .all()
+    )
 
 
 @router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageResponse])
 def get_session_messages(
     session_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = db.query(ChatSession).filter(
         ChatSession.id == session_id,
-        ChatSession.user_id == current_user.id
+        ChatSession.user_id == current_user.id,
     ).first()
+
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
 
-    return db.query(ChatMessage).filter(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at.asc()).all()
+    return (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
 
 
 @router.post("/sessions/{session_id}/message", response_model=ChatReply)
 def send_message(
     session_id: int,
+    request: Request,
     message_data: ChatMessageCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
     session = db.query(ChatSession).filter(
         ChatSession.id == session_id,
-        ChatSession.user_id == current_user.id
+        ChatSession.user_id == current_user.id,
     ).first()
+
     if not session:
         raise HTTPException(status_code=404, detail="Chat session not found")
 
     user_message = ChatMessage(
         session_id=session_id,
         role=MessageRole.user,
-        content=message_data.content
+        content=message_data.content,
     )
+
     db.add(user_message)
     db.commit()
     db.refresh(user_message)
 
-    history_rows = db.query(ChatMessage).filter(
-        ChatMessage.session_id == session_id
-    ).order_by(ChatMessage.created_at.asc()).all()
+    history_rows = (
+        db.query(ChatMessage)
+        .filter(ChatMessage.session_id == session_id)
+        .order_by(ChatMessage.created_at.asc())
+        .all()
+    )
 
-    conversation_history = [{"role": h.role.value, "content": h.content} for h in history_rows[:-1]]
+    conversation_history = [
+        {"role": h.role.value, "content": h.content}
+        for h in history_rows[:-1]
+    ]
 
     allowed_document_ids = {
-        doc.id for doc in db.query(Document.id).filter(Document.owner_id == current_user.id).all()
+        doc.id
+        for doc in db.query(Document.id)
+        .filter(Document.owner_id == current_user.id)
+        .all()
     }
 
     answer, _ = generate_rag_answer(
         question=message_data.content,
         allowed_document_ids=allowed_document_ids,
         document_id_filter=session.document_id,
-        conversation_history=conversation_history
+        conversation_history=conversation_history,
     )
 
     assistant_message = ChatMessage(
         session_id=session_id,
         role=MessageRole.assistant,
-        content=answer
+        content=answer,
     )
+
     db.add(assistant_message)
     db.commit()
     db.refresh(assistant_message)
 
+    log_action(
+        db,
+        user_id=current_user.id,
+        action="chat_message_sent",
+        resource_type="chat_session",
+        resource_id=session_id,
+        details={
+            "session_id": session_id,
+        },
+        request=request,
+    )
+
     return ChatReply(
         session_id=session_id,
         user_message=user_message,
-        assistant_message=assistant_message
+        assistant_message=assistant_message,
     )
