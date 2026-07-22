@@ -6,6 +6,8 @@ import DashboardPage from "./pages/DashboardPage";
 import SearchPage from "./pages/SearchPage";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ChatPage from './pages/ChatPage';
+import AdminPage from './pages/AdminPage';
+
 function App() {
   return (
     <BrowserRouter>
@@ -43,6 +45,14 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminPage />
+            </ProtectedRoute>
+         }
+/>
       </Routes>
     </BrowserRouter>
   );

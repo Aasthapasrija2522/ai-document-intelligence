@@ -61,3 +61,23 @@ export interface ChatReply {
   user_message: ChatMessage;
   assistant_message: ChatMessage;
 }
+export interface AnalyticsData {
+  total_users: number;
+  total_documents: number;
+  documents_by_status: Record<string, number>;
+  documents_by_classification: Record<string, number>;
+  pii_detected_count: number;
+  total_chat_sessions: number;
+  total_searches_performed: number;
+}
+
+export interface AuditLogEntry {
+  id: number;
+  user_id: number | null;
+  action: string;
+  resource_type: string | null;
+  resource_id: number | null;
+  details: Record<string, unknown> | null;
+  ip_address: string | null;
+  created_at: string;
+}

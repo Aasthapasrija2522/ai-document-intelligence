@@ -70,6 +70,13 @@ function DashboardPage() {
         >
           Go to chat →
         </Link>
+        <Link
+          to="/admin"
+          className="inline-block mb-6 ml-4 text-xs uppercase tracking-wide"
+          style={{ color: '#5FB8B0', fontFamily: "'IBM Plex Mono', monospace" }}
+        >
+          Admin console →
+        </Link>
 
         <DocumentUpload onUploadComplete={handleUploadComplete} />
 
