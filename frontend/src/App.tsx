@@ -5,7 +5,7 @@ import SignupPage from "./pages/SignupPage";
 import DashboardPage from "./pages/DashboardPage";
 import SearchPage from "./pages/SearchPage";
 import ProtectedRoute from "./components/ProtectedRoute";
-
+import ChatPage from './pages/ChatPage';
 function App() {
   return (
     <BrowserRouter>
@@ -32,6 +32,14 @@ function App() {
           element={
             <ProtectedRoute>
               <SearchPage />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat"
+          element={
+            <ProtectedRoute>
+              <ChatPage />
             </ProtectedRoute>
           }
         />

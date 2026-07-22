@@ -63,6 +63,13 @@ function DashboardPage() {
         >
           Go to search →
         </Link>
+        <Link
+          to="/chat"
+          className="inline-block mb-6 ml-4 text-xs uppercase tracking-wide"
+          style={{ color: '#5FB8B0', fontFamily: "'IBM Plex Mono', monospace" }}
+        >
+          Go to chat →
+        </Link>
 
         <DocumentUpload onUploadComplete={handleUploadComplete} />
 
