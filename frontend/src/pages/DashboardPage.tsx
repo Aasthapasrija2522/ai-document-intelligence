@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import DocumentUpload from '../components/DocumentUpload';
 import DocumentList from '../components/DocumentList';
 import { listDocuments, downloadDocument } from '../api/documents';
@@ -40,21 +41,46 @@ function DashboardPage() {
         >
           Access Granted — Session Active
         </p>
+
         <h1
           className="text-3xl mb-6"
-          style={{ color: '#ECEEF3', fontFamily: "'Source Serif 4', serif", fontWeight: 600 }}
+          style={{
+            color: '#ECEEF3',
+            fontFamily: "'Source Serif 4', serif",
+            fontWeight: 600,
+          }}
         >
           Document Intelligence Dashboard
         </h1>
 
+        <Link
+          to="/search"
+          className="inline-block mb-6 text-xs uppercase tracking-wide"
+          style={{
+            color: '#5FB8B0',
+            fontFamily: "'IBM Plex Mono', monospace",
+          }}
+        >
+          Go to search →
+        </Link>
+
         <DocumentUpload onUploadComplete={handleUploadComplete} />
 
         {loading ? (
-          <p className="text-sm mt-6" style={{ color: '#8791A8', fontFamily: "'Inter', sans-serif" }}>
+          <p
+            className="text-sm mt-6"
+            style={{
+              color: '#8791A8',
+              fontFamily: "'Inter', sans-serif",
+            }}
+          >
             Loading documents…
           </p>
         ) : (
-          <DocumentList documents={documents} onDownload={handleDownload} />
+          <DocumentList
+            documents={documents}
+            onDownload={handleDownload}
+          />
         )}
       </div>
     </div>
