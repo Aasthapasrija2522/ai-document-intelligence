@@ -29,6 +29,7 @@ httpcore==1.0.9
 httpx==0.28.1
 huggingface_hub==1.23.0
 idna==3.18
+iniconfig==2.3.0
 Jinja2==3.1.6
 joblib==1.5.3
 limits==5.8.0
@@ -46,6 +47,7 @@ passlib==1.7.4
 pdfminer.six==20260107
 pdfplumber==0.11.10
 pillow==12.3.0
+pluggy==1.6.0
 preshed==3.0.13
 psycopg2-binary==2.9.12
 pyasn1==0.6.4
@@ -56,6 +58,7 @@ pydantic_core==2.46.4
 Pygments==2.20.0
 pymupdf==1.28.0
 pypdfium2==5.11.0
+pytest==9.1.1
 python-docx==1.2.0
 python-dotenv==1.2.2
 python-jose==3.5.0
