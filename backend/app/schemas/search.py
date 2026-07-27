@@ -1,8 +1,16 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 class SearchQuery(BaseModel):
     query: str
     top_k: int = 5
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, value: str):
+        value = value.strip()
+        if not value:
+            raise ValueError("Search query cannot be empty.")
+        return value
 
 class SearchResult(BaseModel):
     document_id: int
