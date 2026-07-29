@@ -104,4 +104,4 @@ pytest tests/ -v
 
 ## Author
 
-Built by [Your Name] as a learning project over 30 days, developed with a structured, mentorship-driven approach — every line of code was written and understood individually.
+Built by Aastha Pasrija as a learning project over 30 days, developed with a structured, mentorship-driven approach — every line of code was written and understood individually.
